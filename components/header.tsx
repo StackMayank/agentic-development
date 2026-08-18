@@ -64,8 +64,6 @@ const Header = () => {
                 </Button>
               </SignUpButton>
             </Show>
-            
-
         </div>
 
         </nav>
