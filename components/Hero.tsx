@@ -19,7 +19,7 @@ const Home = () => {
   const [isFocused, setIsFocused] = useState(false);
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
 
-    useEffect(() => {
+  useEffect(() => {
     if (isFocused || prompt) return;
     const t = setInterval(() => {
       setPlaceholderIndex((i) => (i + 1) % PLACEHOLDERS.length);
@@ -27,15 +27,13 @@ const Home = () => {
     return () => clearInterval(t);
   }, [isFocused, prompt]);
 
-  
-    useEffect(() => {
+  useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
     el.style.height = Math.min(el.scrollHeight, 200) + "px";
   }, [prompt]);
 
-  
   const handleSubmit = () => {
     if (!prompt.trim() || !isSignedIn) return;
     router.push(`/workspace?prompt=${encodeURIComponent(prompt.trim())}`);
@@ -56,8 +54,7 @@ const Home = () => {
 
   return (
     <main className="min-h-screen w-full bg-black selection:bg-white/20 ">
-
-        {/* hero section */}
+      {/* hero section */}
       <section className="relative flex flex-col items-center overflow-hidden px-4 pb-15 pt-30 text-center ">
         <SoftAurora
           className="absolute inset-0 h-full w-full mt-20 lg:mt-30  "
@@ -126,7 +123,7 @@ const Home = () => {
                 <RainbowButton
                   onClick={handleSubmit}
                   disabled={!prompt.trim()}
-                  variant={'default'}
+                  variant={"default"}
                   className="h-8 rounded-sm px-3 font-semibold gap-1.5"
                 >
                   Generate
@@ -134,9 +131,9 @@ const Home = () => {
                 </RainbowButton>
               ) : (
                 <SignInButton mode="modal">
-                  <RainbowButton 
-                  className="h-8 rounded-sm px-3 font-semibold gap-1.5"
-                  variant={"default"}
+                  <RainbowButton
+                    className="h-8 rounded-sm px-3 font-semibold gap-1.5"
+                    variant={"default"}
                   >
                     Generate
                     <ArrowRight className="h-3.5 w-3.5" />
@@ -146,7 +143,7 @@ const Home = () => {
             </div>
           </div>
 
-             <div className="mt-4 flex flex-wrap justify-center gap-2">
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
             {SUGGESTIONS.map((s) => (
               <button
                 key={s}
@@ -156,7 +153,7 @@ const Home = () => {
                 {s}
               </button>
             ))}
-            </div>
+          </div>
         </div>
       </section>
     </main>

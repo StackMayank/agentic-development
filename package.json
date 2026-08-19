@@ -11,6 +11,8 @@
   "dependencies": {
     "@arcjet/next": "^1.10.0",
     "@clerk/nextjs": "^7.7.6",
+    "@codesandbox/sandpack-react": "^2.20.0",
+    "@codesandbox/sandpack-themes": "^2.0.21",
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
     "class-variance-authority": "^0.7.1",

@@ -4,7 +4,6 @@ import "./globals.css";
 import { cn } from "@/lib/utils";
 import { ThemeProvider } from "@/components/ui/theme-provider";
 import Header from "@/components/header";
-import Footer from "@/components/footer";
 import { ClerkProvider } from "@clerk/nextjs";
 
 const lora = Lora({
@@ -40,10 +39,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
               enableSystem
               disableTransitionOnChange
               >
-              <main>
-              <Header/>
-              {children}
-              <Footer/>
+              <Header />
+              <main className="h-16" >
+                {children}
               </main>
             </ThemeProvider>
           </body> 
