@@ -9,7 +9,6 @@ import { useRef, useState, useEffect } from "react";
 import { PLACEHOLDERS, FEATURES, STEPS, SUGGESTIONS } from "@/lib/data";
 import { RainbowButton } from "@/components/ui/rainbow-button";
 import { ArrowRight } from "lucide-react";
-import Pricing from "@/components/Pricing";
 
 const Home = () => {
   const { isSignedIn } = useAuth();
@@ -59,7 +58,6 @@ const Home = () => {
     <main className="min-h-screen w-full bg-black selection:bg-white/20 ">
 
         {/* hero section */}
-
       <section className="relative flex flex-col items-center overflow-hidden px-4 pb-15 pt-30 text-center ">
         <SoftAurora
           className="absolute inset-0 h-full w-full mt-20 lg:mt-30  "
