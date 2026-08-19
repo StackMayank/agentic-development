@@ -1,4 +1,12 @@
-import { Sparkles, Zap, Code2, Eye, Package, ImageIcon } from "lucide-react";
+import {
+  Sparkles,
+  Zap,
+  Code2,
+  Eye,
+  Package,
+  ImageIcon,
+  ShieldCheck,
+} from "lucide-react";
 
 export const SUGGESTIONS = [
   "A Spotify stats dashboard with charts",
@@ -72,3 +80,93 @@ export const PLACEHOLDERS = [
   "An expense tracker with monthly breakdowns…",
   "A habit tracker with streaks and heatmaps…",
 ];
+
+export interface PricingPlanData {
+  name: string;
+  icon: typeof Zap;
+  iconColor: string;
+  description: string;
+  price: number | string;
+  billingPeriod?: string;
+  priceNote?: string;
+  cta: {
+    label: string;
+    href?: string;
+    variant?: "default" | "outline" | "secondary";
+  };
+  features: string[];
+  featured?: boolean;
+}
+
+export const PRICING_HEADER = {
+  badge: "Plans & Pricing",
+  title: "Simple, transparent pricing",
+  description:
+    "Choose the plan that best fits your workflow. Upgrade or downgrade anytime.",
+};
+
+export const PRICING_PLANS: PricingPlanData[] = [
+  {
+    name: "Free",
+    icon: Zap,
+    iconColor: "text-emerald-400",
+    description: "Perfect for testing ideas and exploring what you can build.",
+    price: 0,
+    billingPeriod: "/ month",
+    priceNote: "Free forever. No credit card required.",
+    cta: {
+      label: "Get Started Free",
+      variant: "outline",
+    },
+    features: [
+      "10 generations / month",
+      "Live interactive preview",
+      "Export code to ZIP",
+      "Basic AI component generation",
+    ],
+    featured: false,
+  },
+  {
+    name: "Starter",
+    icon: Sparkles,
+    iconColor: "text-purple-400",
+    description: "For creators and developers who build and iterate regularly.",
+    price: 9,
+    billingPeriod: "/ month",
+    priceNote: "Billed monthly. Cancel anytime.",
+    cta: {
+      label: "Upgrade to Starter",
+      variant: "default",
+    },
+    features: [
+      "50 generations / month",
+      "Image & screenshot uploads",
+      "Live interactive preview",
+      "Export code to ZIP",
+      "Standard queue priority",
+    ],
+    featured: true,
+  },
+  {
+    name: "Pro",
+    icon: ShieldCheck,
+    iconColor: "text-blue-400",
+    description: "For power users and teams who need maximum speed & capacity.",
+    price: 29,
+    billingPeriod: "/ month",
+    priceNote: "Billed monthly. Cancel anytime.",
+    cta: {
+      label: "Get Pro Access",
+      variant: "outline",
+    },
+    features: [
+      "150 generations / month",
+      "Priority AI (fast response time)",
+      "Access to Forge Pro Agent",
+      "Image & screenshot uploads",
+      "Live preview & ZIP export",
+      "Dedicated support",
+    ],
+    featured: false,
+  },
+];
