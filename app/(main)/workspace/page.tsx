@@ -13,7 +13,12 @@ const WorkSpace = async ({searchParams}: WorkspacePageProps) => {
     const { prompt , id } = await searchParams ;
     
   return (
-    <WorkspaceClient/>
+    <WorkspaceClient  
+    initialPrompt= {prompt ?? null} 
+    userCredits={10} // placeholder until DB reads in step 8
+    userId={userId}
+    userPlan="free" // placeholder until DB read in step 8
+    />
   )
 }
 
