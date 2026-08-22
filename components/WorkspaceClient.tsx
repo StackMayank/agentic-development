@@ -97,6 +97,118 @@ function parseFileData(raw: unknown): FileData | null {
   return raw as FileData;
 }
 
+  const handleImprove = useCallback(
+    async (userRequest: string) => {
+      if (isGenerating || isImproving) return;
+      if (credits < MIN_CREDITS_TO_GENERATE) return;
+      if (!workspaceIdRef.current) return;
+
+      const currentFileData = fileDataRef.current;
+      if (!currentFileData) return;
+
+      const abortController = new AbortController();
+      improveAbortRef.current = abortController;
+
+      setIsImproving(true);
+      setMessages((prev) => [
+        ...prev,
+        { role: "user", content: userRequest },
+        { role: "assistant", content: "" },
+      ]);
+
+      try {
+        const res = await fetch("/api/improve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: abortController.signal,
+          body: JSON.stringify({
+            userId,
+            workspaceId: workspaceIdRef.current,
+            userRequest,
+            fileData: currentFileData,
+          }),
+        });
+
+        if (res.status === 403) {
+          toast.error("Upgrade to Starter or Pro to use Improve with Forge Agent.");
+          setMessages((prev) => prev.slice(0, -2));
+          return;
+        }
+        if (res.status === 402) {
+          toast.error("Not enough credits.");
+          setMessages((prev) => prev.slice(0, -2));
+          return;
+        }
+        if (!res.ok || !res.body) throw new Error("Improve failed");
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        const localPatches: Record<string, { code: string }> = {};
+        let buffer = "";
+        let accumulatedThinking = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n\n");
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+
+            let event: Record<string, unknown>;
+            try {
+              event = JSON.parse(line.slice(6));
+            } catch {
+              continue;
+            }
+
+            if (event.type === "thinking" && typeof event.text === "string") {
+              accumulatedThinking += event.text;
+              setMessages((prev) => {
+                const updated = [...prev];
+                updated[updated.length - 1] = {
+                  role: "assistant",
+                  content: accumulatedThinking,
+                };
+                return updated;
+              });
+            } else if (
+              event.type === "file_patch" &&
+              typeof event.path === "string" &&
+              typeof event.code === "string"
+            ) {
+              localPatches[event.path] = { code: event.code };
+            } else if (event.type === "done") {
+              setFileData(event.fileData as FileData);
+              setCredits(event.creditsRemaining as number);
+              setMessages((prev) => {
+                const updated = [...prev];
+                updated[updated.length - 1] = {
+                  role: "assistant",
+                  content: event.summary as string,
+                };
+                return updated;
+              });
+            } else if (event.type === "error") {
+              throw new Error(String(event.message));
+            }
+          }
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message === "Improve failed") {
+          setMessages((prev) => prev.slice(0, -2));
+        }
+      } finally {
+        improveAbortRef.current = null;
+        setIsImproving(false);
+      }
+    },
+    [credits, isGenerating, isImproving, userId],
+  );
+
   const handleGenerate = useCallback(
     async (prompt: string, imageUrl?: string) => {
       if(isGenerating) return;
@@ -219,7 +331,7 @@ function parseFileData(raw: unknown): FileData | null {
       <ChatPanel
         messages={messages}
         isGenerating={isGenerating}
-        isImproving={false}
+        isImproving={isImproving}
         statusLog={statusLog}
         credits={credits}
         initialPrompt={initialPrompt}
@@ -242,6 +354,9 @@ function parseFileData(raw: unknown): FileData | null {
             `There is an error in the preview:\n\n\`\`\`\n${error}\n\`\`\`\n\nPlease fix it.`,
           )
         }
+        appTitle={fileData?.title ?? workspace?.title ?? null}
+        isProUser={userPlan === "pro"}
+        onImprove={handleImprove}
       />
     </div>
   );
