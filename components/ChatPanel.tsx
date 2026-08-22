@@ -4,8 +4,10 @@ import PricingModal from "./PricingModal";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
 import Image from "next/image";
-import { ArrowUp, Check, Loader2, Paperclip } from "lucide-react";
+import { ArrowUp, Check, Loader2, Paperclip, Square, X } from "lucide-react";
 import { Button } from "./ui/button";
+import { createClient } from "@supabase/supabase-js";
+import { toast } from "sonner";
 
 interface ChatPanelProps {
   messages: Message[];
@@ -18,7 +20,13 @@ interface ChatPanelProps {
   userId: string;
   workspaceId: string | null;
   appTitle: string | null;
+  onStop : ()=> <void>;
 }
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+);
 
 const ChatPanel = ({
   messages,
@@ -29,6 +37,7 @@ const ChatPanel = ({
   initialPrompt,
   onGenerate,
   userId,
+  onStop,
   workspaceId,
   appTitle,
 }: ChatPanelProps) => {
@@ -36,6 +45,9 @@ const ChatPanel = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const [input, setInput] = useState("");
+  const [pendingImageUrl, setPendingImageUrl] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const hasAutoSubmittedRef = useRef(false);
   const noCredits = credits <= 0;
@@ -43,32 +55,48 @@ const ChatPanel = ({
   const canSubmit =
     input.trim().length > 0 && !isGenerating && !isImproving && !noCredits;
 
-  const msgs = [
-    {
-      role: "user",
-      content: "Build me a modern dashboard with a dark theme",
-    },
-    {
-      role: "assistant",
-      content:
-        "I've built a **modern dashboard** with a clean dark theme. Here's what's included:\n\n- Responsive sidebar navigation\n- Dashboard overview cards\n- Revenue and analytics charts\n- Recent transactions table\n- User profile section\n- Smooth animations with framer-motion\n\nLet me know if you'd like any changes!",
-    },
-  ];
-
   const statuses = [
     { label: "planning the component structure", status: "done" },
     { label: "Writing App.js and Component", status: "done" },
     { label: "Validating Packages...", status: "running" },
   ];
 
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith("image/")) return;
+    setIsUploading(true);
+
+    try {
+      const ext = file.name.split(".").pop();
+
+      const path = `${userId}/${workspaceId ?? "new"}/${Date.now()}.${ext}`;
+      const { error } = await supabase.storage
+        .from("workspace-images")
+        .upload(path, file, { upsert: true });
+
+      if (error) throw error;
+
+      const { data } = supabase.storage
+        .from("workspace-images")
+        .getPublicUrl(path);
+      setPendingImageUrl(data.publicUrl);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(message);
+    } finally {
+      setIsUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
   const handleSubmit = async () => {
     const trimmed = input.trim();
-    if(!trimmed || isGenerating || isImproving || noCredits) return;
+    if (!trimmed || isGenerating || isImproving || noCredits) return;
 
     setInput("");
-    // TODO : pass PendingImageUrl as Second arg + reset if after submit
-    await onGenerate(trimmed);
-  }
+    setPendingImageUrl(null);
+    await onGenerate(trimmed, pendingImageUrl ?? undefined);
+  };
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -93,9 +121,9 @@ const ChatPanel = ({
   }, [messages, isGenerating, isImproving]);
 
   useEffect(() => {
-    if(!initialPrompt || hasAutoSubmittedRef.current || messages.length > 0 )
-        return;
-    hasAutoSubmittedRef.current = true
+    if (!initialPrompt || hasAutoSubmittedRef.current || messages.length > 0)
+      return;
+    hasAutoSubmittedRef.current = true;
     onGenerate(initialPrompt);
   }, []);
 
@@ -212,7 +240,22 @@ const ChatPanel = ({
         )}
       </div>
       <div className="border-t border-white/6 p-3">
-        {/* Todo: Pending Image Preview Thumbnail with X remove button */}
+        {pendingImageUrl && (
+          <div className="relative mb-2 w-fit">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={pendingImageUrl}
+              alt="pending upload"
+              className="h-16 w-16 rounded-lg object-cover"
+            />
+            <button
+              onClick={() => setPendingImageUrl(null)}
+              className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-black/80 text-white/60 hover:text-white"
+            >
+              <X className="h-2.5 w-2.5" />
+            </button>
+          </div>
+        )}
 
         <div
           className={cn(
@@ -220,8 +263,8 @@ const ChatPanel = ({
             isGenerating || isImproving
               ? "border-white/4"
               : noCredits
-              ? "border-white/4 opacity-60"
-              : "border-white/8 hover:border-white/12"
+                ? "border-white/4 opacity-60"
+                : "border-white/8 hover:border-white/12",
           )}
         >
           <textarea
@@ -245,31 +288,58 @@ const ChatPanel = ({
 
           <div className="flex items-center justify-between px-2 pb-2">
             <Button
-            variant="ghost"
-            size="icon"
-            disabled
-            className="h-7 w-7 rounded-lg text-white/25 opacity-40"
+              variant="ghost"
+              size="icon"
+              onClick={() => fileRef.current?.click()}
+              disabled={isGenerating || isImproving || isUploading || noCredits}
+              className="h-7 w-7 rounded-lg text-white/25  hover:bg-white/6 hover:text-white/50 disabled:opacity-40"
             >
-
-            {isGenerating || isImproving ? 
-            (
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-white/50 " />
-            ) 
-            :
-            (
-                <ArrowUp  className="h-3.5 w-3.5"/>
-            )}
-
-
-            <Paperclip className="h-3.5 w-3.5" />
+              {isUploading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Paperclip className="h-3.5 w-3.5" />
+              )}
             </Button>
+
+            <input
+              type="file"
+              ref={fileRef}
+              accept="image/*"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+
+            {isGenerating || isImproving ? (
+              <Button
+                size="icon"
+                onClick={onStop}
+                className="h-7 w-7 rounded-lg bg-white/10 text-white/60 hover:bg-white/20 hover:text-white active:scale-95 transition-all"
+              >
+                <Square className="h-3 w-3 fill-current" />
+              </Button>
+            ) : (
+              <Button
+                size="icon"
+                onClick={handleSubmit}
+                disabled={!canSubmit}
+                className={cn(
+                  "h-7 w-7 rounded-lg transition-all",
+                  canSubmit
+                    ? "bg-white text-black hover:bg-white/90 active:scale-95"
+                    : "bg-white/8 text-white/20 shadow-none"
+                )}
+              >
+                <ArrowUp className="h-3.5 w-3.5" />
+              </Button>
+            )}
           </div>
-
-        <p className="mt-1.5 text-center text-[10px] text-white/15">
-        ⏎ to send · Shift+⏎ for new line
-        </p>
-
         </div>
+
+          <p className="mt-1.5 text-center text-[10px] text-white/15">
+           {isGenerating || isImproving
+            ? "Click ■ to stop generation"
+            : "⏎ to send · Shift+⏎ for new line"}
+          </p>
       </div>
     </div>
   );

@@ -28,4 +28,9 @@ export interface WorkspaceUser {
   id: string;
   credits: number;
   plan: string;
+}export interface InitialWorkspace {
+  id: string;
+  title: string | null;
+  messages: Message[];
+  fileData: FileData | null;
 }
