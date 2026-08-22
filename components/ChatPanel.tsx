@@ -8,6 +8,8 @@ import { ArrowUp, Check, Loader2, Paperclip, Square, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { createClient } from "@supabase/supabase-js";
 import { toast } from "sonner";
+import { useUser } from "@clerk/nextjs";
+import { Sparkles } from "lucide-react";
 
 interface ChatPanelProps {
   messages: Message[];
@@ -20,7 +22,7 @@ interface ChatPanelProps {
   userId: string;
   workspaceId: string | null;
   appTitle: string | null;
-  onStop : ()=> <void>;
+  onStop : () => <void>;
 }
 
 const supabase = createClient(
@@ -44,6 +46,9 @@ const ChatPanel = ({
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const {user} = useUser();
+
+  
   const [input, setInput] = useState("");
   const [pendingImageUrl, setPendingImageUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -166,13 +171,32 @@ const ChatPanel = ({
                 {msg.role === "user" ? (
                   <div className="flex items-start justify-end gap-2">
                     <div className="max-w-[85%] space-y-1.5">
-                      {/* TODO : show msg.imageUrl thumbnail if present */}
+                      {
+                        msg.imageUrl && (
+                          <img src={msg.imageUrl} 
+                          alt="uploaded"
+                          className="max-h-40 w-full rounded-lg object-cover" 
+                          />
+                        )
+                      }
                       <div className="rounded-2xl rounded-br-sm bg-white/10 px-3.5 py-2.5">
-                        <p className="text-[13px] leading-relaxed text-white/80 break-words">
+                        <p className="text-[13px] leading-relaxed text-white/80 wrap-break-words">
                           {msg.content}
                         </p>
                       </div>
                     </div>
+                    {/* TODO : show msg.imageUrl thumbnail if present */}
+                      {user?.imageUrl ? (
+                        <img
+                          src={user.imageUrl}
+                          alt="User Avatar"
+                          className="mt-0.5 h-6 w-6 shrink-0 rounded-full"
+                        />
+                      ) : (
+                      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/10 text-[10px] font-semibold text-white/50">
+                        {user?.firstName?.[0] ?? "U"}
+                      </div>
+                      )}
                   </div>
                 ) : (
                   <div className="flex items-start gap-2">
@@ -183,10 +207,8 @@ const ChatPanel = ({
                       className="mt-0.5 h-6 w-6 shrink-0 rounded-md"
                       alt="Prixis"
                     />
-                    <div className="min-w-0 max-w-[85%] rounded-2xl rounded-tl-sm bg-white/5 px-3.5 py-2.5">
-                      <div className="text-[13px] leading-relaxed text-white/70 break-words [&_p]:mb-2 [&_ul]:list-disc [&_ul]:pl-4 [&_li]:mb-1 [&_strong]:font-semibold [&_strong]:text-white/90">
-                        <ReactMarkdown>{msg.content}</ReactMarkdown>
-                      </div>
+                    <div className="prose prose-sm prose-invert max-w-none wrap-break-word text-[13px] leading-relaxed text-white/70 [&_code]:rounded [&_code]:bg-white/10 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-blue-300/80 [&_code]:text-xs [&_code]:break-all [&_li]:my-0.5 [&_p]:my-1 [&_pre]:overflow-x-auto! [&_pre]:whitespace-pre-wrap! [&_ul]:my-1">
+                      <ReactMarkdown>{msg.content}</ReactMarkdown>
                     </div>
                   </div>
                 )}
@@ -239,6 +261,22 @@ const ChatPanel = ({
           </div>
         )}
       </div>
+
+
+      {noCredits && (
+        <div className="mx-3 mb-2 rounded-xl border border-red-500/15 bg-red-950/40 px-4 py-3">
+          <p className="mb-2 text-[12px] font-medium text-red-400/80">
+            You&apos;ve used all your credits
+          </p>
+          <PricingModal reason="credits">
+            <span className="inline-flex h-8 items-center gap-1.5 rounded-full text-xs active:scale-95 cursor-pointer bg-white text-black px-3">
+              <Sparkles className="h-3 w-3" />
+              Upgrade plan
+            </span>
+          </PricingModal>
+        </div>
+      )}
+
       <div className="border-t border-white/6 p-3">
         {pendingImageUrl && (
           <div className="relative mb-2 w-fit">

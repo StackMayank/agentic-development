@@ -64,6 +64,11 @@ const WorkspaceClient = ({
     );
   };
 
+         // AbortController refs — used to cancel in-flight streams
+  const generateAbortRef = useRef<AbortController | null>(null);
+  const improveAbortRef = useRef<AbortController | null>(null);
+
+
   const handleFilePatch = useCallback((patches: FileData) => {
     setFileData(patches);
   }, []);
@@ -110,12 +115,17 @@ function parseFileData(raw: unknown): FileData | null {
       setIsGenerating(true);
       setStatusLog([{ label: "Thinking…", status: "running" }]);
       
+      // Create a fresh AbortController for this request
+      const abortController = new AbortController();
+      generateAbortRef.current = abortController;
+
       try {
         const conversationHistory = [...currentMessages, userMessage];
 
         const res = await fetch("/api", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: abortController.signal,
           body: JSON.stringify({
             workspaceId: currentWorkspaceId,
             userId,
@@ -183,18 +193,25 @@ function parseFileData(raw: unknown): FileData | null {
           setMessages((prev) => prev.slice(0, -1));
           return;
         }
-        console.error(err);
         toast.error(
           err instanceof Error ? err.message : "Something went wrong."
         );
         setMessages((prev) => prev.slice(0, -1));
       } finally {
+        generateAbortRef.current = null;
         setIsGenerating(false);
         setStatusLog([]);
       }
     },
     [credits, isGenerating, userId],
   );
+
+  // Cancel whichever stream is currently in-flight
+  const handleStop = useCallback(() => {
+    generateAbortRef.current?.abort();
+    improveAbortRef.current?.abort();
+  }, []);
+
 
   return (
     <div className="flex h-[calc(100vh-4rem)] overflow-hidden bg-[#0a0a0a]">
@@ -206,6 +223,7 @@ function parseFileData(raw: unknown): FileData | null {
         statusLog={statusLog}
         credits={credits}
         initialPrompt={initialPrompt}
+        onStop={handleStop}
         onGenerate={handleGenerate}
         userId={userId}
         workspaceId={workspaceId}
