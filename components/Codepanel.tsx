@@ -198,6 +198,23 @@ function SandpackInner({
           </div>
         )}
 
+        <div className="relative flex-1 overflow-hidden">
+          {(isGenerating || isImproving) && (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-6 bg-[#0a0a0a]/85 backdrop-blur-sm">
+            <RingLoader color="#60a5fa" size={64} speedMultiplier={0.8}/>
+            <div className="flex flex-col items-center gap-1.5">
+              <p className="text-sm font-medium text-white/60">
+                {isImproving
+                ? "Improving with AI Agent"
+                : (statusLog[statusLog.length - 1]?.label ?? "Generating...")}
+              </p>
+              <p className="text-xs text-white/20">
+                  This usually takes 10-20 seconds
+              </p>
+            </div>
+            </div>
+          )}  
+
         <SandpackLayout
           style={{
             height: "100vh",
@@ -239,8 +256,9 @@ function SandpackInner({
             />
         </TabsContent>
         </SandpackLayout>
-
-         {previewError && !isGenerating && !isImproving && activeTab === "preview" && (
+         </div>
+      </div>
+      {previewError && !isGenerating && !isImproving && activeTab === "preview" && (
           <div className="absolute inset-x-0 bottom-3 z-20 border-t border-red-500/20 bg-red-950/99 p-4 pb-6">
               <div className="flex items-center gap-2.5">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-400/70" />
@@ -261,7 +279,6 @@ function SandpackInner({
               </div>
           </div>
          )}
-      </div>
     </Tabs>
   );
 }

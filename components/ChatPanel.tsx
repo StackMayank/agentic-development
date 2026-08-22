@@ -22,7 +22,7 @@ interface ChatPanelProps {
   userId: string;
   workspaceId: string | null;
   appTitle: string | null;
-  onStop : () => <void>;
+  onStop: () => void;
 }
 
 const supabase = createClient(
