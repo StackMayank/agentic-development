@@ -1,13 +1,11 @@
 import Link from "next/link"
 import Image from "next/image"
-import { ArrowRight, Zap } from "lucide-react"
+import { ArrowRight } from "lucide-react"
 import { Show } from "@clerk/nextjs"
 import { SignInButton, SignUpButton, UserButton } from "@clerk/nextjs"
 import { Button } from "./ui/button"
-import PricingModal from "./PricingModal"
 import { checkUser } from "@/lib/checkUser"
-import type { Plan } from "@/types/plans"
-import { PLANS } from "@/lib/constants"
+import CreditsPill from "./CreditsPill"
 
 
 const Header = async () => {
@@ -44,14 +42,15 @@ const user = await checkUser()
            </Link> 
         
 
-        {/* credits */}
+        {/* credits — live synced client-side pill matches chat pill exactly */}
 
-        {user && <PricingModal>
-          <span className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 text-xs text-white/70">
-            <Zap className="h-3 w-3 fill-white/70"/>
-            {user.credits} / {PLANS[user?.plan as Plan].credits} credits
-        </span> 
-        </PricingModal>}
+        {user && (
+          <CreditsPill
+            variant="header"
+            initialCredits={user.credits}
+            initialPlan={user.plan}
+          />
+        )}
          
               <UserButton />
             </Show>  

@@ -6,6 +6,7 @@ import ChatPanel from "./ChatPanel";
 import { MIN_CREDITS_TO_GENERATE } from "@/lib/constants";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import { creditsStore } from "@/lib/useLiveCredits";
 
 interface WorkspaceClientProps {
   initialPrompt: string | null;
@@ -27,6 +28,16 @@ const WorkspaceClient = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusLog, setStatusLog] = useState<StatusStep[]>([]);
   const [credits, setCredits] = useState(userCredits);
+
+  // Sync the local credits state into the shared store so Header + Chat read
+  // the EXACT same live value after SSE updates. Initial SSR props hydrate
+  // both places; SSE setCredits writes to both.
+  useEffect(() => {
+    creditsStore.setCredits(
+      credits,
+      (userPlan as "free" | "pro" | "starter") ?? undefined,
+    );
+  }, [credits, userPlan]);
    const [workspaceId, setWorkspaceId] = useState<string | null>(
     workspace?.id ?? null
   );
@@ -234,13 +245,12 @@ function parseFileData(raw: unknown): FileData | null {
       try {
         const conversationHistory = [...currentMessages, userMessage];
 
-        const res = await fetch("/api", {
+        const res = await fetch("/api/gen-ai-code", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: abortController.signal,
           body: JSON.stringify({
             workspaceId: currentWorkspaceId,
-            userId,
             messages: conversationHistory,
             fileData: fileDataRef.current,
           }),

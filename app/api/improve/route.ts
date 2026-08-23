@@ -1,175 +1,50 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest } from "next/server";
-import { GoogleGenAI } from "@google/genai";
+import { Agent, createTool } from "@cline/sdk";
+import { z } from "zod";
 import { db } from "@/lib/prisma";
 import { CREDIT_COST_PER_GENERATION } from "@/lib/constants";
-import type { Message, FileData } from "@/types/workspace";
-import { aj } from "@/lib/arcjet";
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+import type { FileData } from "@/types/workspace";
 
 // ─── SSE helper ───────────────────────────────────────────────────────────────
 
-function sseEvent(type: string, payload: unknown): string {
-  return `data: ${JSON.stringify({ type, ...(payload as object) })}\n\n`;
-}
-
-// ─── Extract short label from a Gemini thought chunk ─────────────────────────
-// Gemini thoughts often start with a bold heading like **Verify Config**
-// We extract that. If no bold heading, take the first sentence only.
-
-function extractThoughtLabel(text: string): string | null {
-  // Try to grab **bold heading** at the start
-  const boldMatch = text.match(/\*\*([^*]{4,60})\*\*/);
-  if (boldMatch) return boldMatch[1].trim();
-
-  // Fall back to first sentence (up to first . or \n), capped at 60 chars
-  const sentence = text.split(/[.\n]/)[0].trim();
-  if (sentence.length >= 8 && sentence.length <= 80) return sentence;
-
-  return null;
-}
-
-// ─── npm validation ───────────────────────────────────────────────────────────
-
-async function validateDependencies(
-  deps: Record<string, string>,
-): Promise<Record<string, string>> {
-  const valid: Record<string, string> = {};
-  await Promise.all(
-    Object.entries(deps).map(async ([pkg, version]) => {
-      try {
-        const res = await fetch(`https://registry.npmjs.org/${pkg}/latest`, {
-          signal: AbortSignal.timeout(1500),
-        });
-        if (res.ok) valid[pkg] = version;
-      } catch {
-        // silently skip hallucinated packages
-      }
-    }),
-  );
-  return valid;
-}
-
-// ─── History trimming ─────────────────────────────────────────────────────────
-
-function trimHistory(messages: Message[]): Message[] {
-  if (messages.length <= 10) return messages;
-  return [messages[0], ...messages.slice(-8)];
-}
-
-// ─── System prompt ────────────────────────────────────────────────────────────
-
-const SYSTEM_PROMPT = `You are an expert React developer. Your job is to generate complete, working React applications based on user prompts.
-
-RULES:
-1. Always respond with a valid JSON object — no markdown fences, no extra text.
-2. The JSON must match this exact shape:
-{
-  "assistantMessage": "<brief explanation of what you built/changed>",
-  "title": "<short 2-4 word title for the app, e.g. 'Todo List App'>",
-  "files": {
-    "/App.js": { "code": "<full file content>" },
-    "/components/SomeComponent.js": { "code": "<full file content>" }
-  },
-  "dependencies": {
-    "some-package": "latest"
-  }
-}
-3. Use React (functional components + hooks). Do NOT use TypeScript in generated files.
-4. Use Tailwind CSS for all styling. Do not use CSS modules or inline styles unless absolutely necessary.
-5. The entry point must always be /App.js and must export a default component.
-6. All imports must reference files you include in "files" or packages in "dependencies".
-7. Do not include react, react-dom, or tailwindcss in "dependencies" — they are always available.
-8. When modifying existing code, include ALL files (both changed and unchanged) in "files".
-9. Keep code clean, readable, and production-quality.
-10. If the user attaches an image, use it as a design reference and match the layout/style as closely as possible.`;
-
-// ─── Gemini contents builder ──────────────────────────────────────────────────
-
-function buildContents(messages: Message[], fileData: FileData | null) {
-  const trimmed = trimHistory(messages);
-
-  return trimmed.map((msg, idx) => {
-    const role = msg.role === "assistant" ? "model" : "user";
-
-    if (msg.role === "user") {
-      const parts: object[] = [];
-
-      let text = msg.content;
-
-      if (msg.imageUrl) {
-        text = `[The user has attached an image. Use this URL directly in the generated app where relevant (as img src, background-image, etc.): ${msg.imageUrl}]\n\n${text}`;
-      }
-
-      const isLast = idx === trimmed.length - 1;
-      if (isLast && fileData) {
-        text +=
-          "\n\nCurrent project files for context:\n" +
-          JSON.stringify(fileData, null, 2);
-      }
-
-      parts.push({ text });
-      return { role, parts };
-    }
-
-    return { role, parts: [{ text: msg.content }] };
-  });
+function sseEvent(type: string, payload: object): string {
+  return `data: ${JSON.stringify({ type, ...payload })}\n\n`;
 }
 
 // ─── Route ────────────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
   const { userId: clerkId } = await auth();
-  if (!clerkId) {
+  if (!clerkId)
     return Response.json({ message: "Unauthorized" }, { status: 401 });
-  }
 
   const body = await request.json();
-  const { workspaceId, messages, fileData } = body as {
-    workspaceId: string | null;
-    messages: Message[];
-    fileData: FileData | null;
+  const { userId, workspaceId, userRequest, fileData } = body as {
+    userId: string;
+    workspaceId: string;
+    userRequest: string; // what the user wants improved
+    fileData: FileData;
   };
 
-  if (!messages?.length) {
-    return Response.json({ message: "No messages provided" }, { status: 400 });
-  }
-
-  // ── Arcjet: rate limit, prompt injection, sensitive info ──────────────────
-  // detectPromptInjectionMessage requires the actual user text to inspect.
-
-  // const arcjetReq = new Request(request.url, {
-  //   method: request.method,
-  //   headers: request.headers,
-  //   body: JSON.stringify(body),
-  // });
-
-  const lastUserMessage =
-    [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
-  const decision = await aj.protect(request, {
-    requested: 1,
-    userId: clerkId,
-    detectPromptInjectionMessage: lastUserMessage,
-  });
-
-  if (decision.isDenied()) {
-    return Response.json(
-      { message: decision.reason?.type ?? "Request blocked" },
-      { status: 429 }
-    );
-  }
+  // ── Auth + credit check ────────────────────────────────────────────────────
 
   const user = await db.user.findUnique({
-    where: { clerkId },
-    select: { id: true, credits: true },
+    where: { id: userId, clerkId },
+    select: { id: true, credits: true, plan: true },
   });
 
   if (!user)
     return Response.json({ message: "User not found" }, { status: 404 });
-  if (user.credits < CREDIT_COST_PER_GENERATION) {
+
+  // Pro-only gate
+  if (user.plan !== "pro")
+    return Response.json({ message: "Upgrade required" }, { status: 403 });
+
+  if (user.credits < CREDIT_COST_PER_GENERATION)
     return Response.json({ message: "Insufficient credits" }, { status: 402 });
-  }
+
+  // ── Build the agent ────────────────────────────────────────────────────────
 
   const encoder = new TextEncoder();
 
@@ -178,147 +53,180 @@ export async function POST(request: NextRequest) {
       const enqueue = (chunk: string) =>
         controller.enqueue(encoder.encode(chunk));
 
+      // Accumulate file patches as the agent calls update_file
+      const patchedFiles: Record<string, { code: string }> = {
+        ...fileData.files,
+      };
+      let finalSummary = "";
+
+      // ── Tool 1: update_file ──────────────────────────────────────────────
+      // The agent calls this once per file it wants to change.
+      // We immediately emit a file_patch SSE event so Sandpack
+      // updates live in the browser as each file is patched.
+
+      const updateFileTool = createTool({
+        name: "update_file",
+        description:
+          "Update or rewrite a file in the React sandbox. Call once per file you need to change.",
+        inputSchema: z.object({
+          path: z
+            .string()
+            .describe("File path exactly as it appears, e.g. /App.js"),
+          code: z.string().describe("Complete new contents of the file"),
+          reason: z
+            .string()
+            .describe("One sentence explaining what you changed and why"),
+        }),
+        async execute({ path, code, reason }) {
+          patchedFiles[path] = { code };
+          // Emit live patch — client applies it to Sandpack immediately
+          enqueue(sseEvent("file_patch", { path, code, reason }));
+          return `Updated ${path}: ${reason}`;
+        },
+      });
+
+      // ── Tool 2: done_improving ───────────────────────────────────────────
+      // Agent calls this when all files are updated.
+      // lifecycle.completesRun: true tells the Cline SDK loop to stop
+      // immediately after this tool runs instead of continuing iterations.
+
+      const doneImprovingTool = createTool({
+        name: "done_improving",
+        description:
+          "Call this when you have finished making all improvements.",
+        inputSchema: z.object({
+          summary: z
+            .string()
+            .describe(
+              "A short friendly summary of all the improvements you made (1-3 sentences)"
+            ),
+        }),
+        lifecycle: { completesRun: true },
+        async execute({ summary }) {
+          finalSummary = summary;
+          return "Done.";
+        },
+      });
+
+      // ── Serialize current files for context ──────────────────────────────
+      // We give the agent all current files as context in the system prompt
+      // so it knows exactly what it's working with.
+
+      const fileContext = Object.entries(fileData.files)
+        .map(([path, { code }]) => `// ${path}\n${code}`)
+        .join("\n\n---\n\n");
+
+      const agent = new Agent({
+        providerId: "gemini",
+        modelId: "gemini-3.5-flash",
+        apiKey: process.env.GEMINI_API_KEY!,
+        maxIterations: 8,
+        tools : [updateFileTool, doneImprovingTool],
+        systemPrompt: `You are an expert React developer improving a live browser preview app.
+
+The app uses React (functional components), Tailwind CSS for styling, and runs in Sandpack.
+You CANNOT use TypeScript, CSS modules, or real npm install — only what's already available.
+Available packages: react, react-dom, tailwindcss (CDN), lucide-react, recharts, react-router-dom, framer-motion, date-fns, zod, react-hook-form.
+
+Here are the current files:
+
+${fileContext}
+
+WORKFLOW:
+1. Understand what the user wants improved.
+2. Identify which files need to change.
+3. Call update_file for each file that needs changes (always include the COMPLETE file, not just the diff).
+4. Once all files are updated, call done_improving with a short summary.
+
+RULES:
+- Always write complete file contents — never partial snippets.
+- Keep all existing functionality unless asked to remove it.
+- The entry point is always /App.js with a default export.
+- All imports must reference files you've updated or packages in the available list above.`,
+        // Auto-approve both tools — no human-in-the-loop needed in this context
+        toolPolicies: {
+          update_file: { autoApprove: true },
+          done_improving: { autoApprove: true },
+        },
+      });
+
       try {
-        const contents = buildContents(messages, fileData);
+        // ── Stream agent reasoning to chat panel ─────────────────────────
+        // assistant-text-delta fires as the agent types its reasoning.
+        // We emit these as "thinking" events — shown in the chat panel
+        // as a live streaming message so users see the agent working.
 
-        const geminiStream = await ai.models.generateContentStream({
-          model: "gemini-3.5-flash",
-          contents,
-          config: {
-            systemInstruction: SYSTEM_PROMPT,
-            temperature: 0.7,
-            responseMimeType: "application/json",
-            thinkingConfig: {
-              includeThoughts: true,
-            },
-          },
-        });
+        agent.subscribe((event) => {
+          if (event.type === "assistant-text-delta" && event.text) {
+            enqueue(sseEvent("thinking", { text: event.text }));
+          }
 
-        let accumulated = ""; // final JSON output
-        let lastEmitTime = 0; // throttle thought emissions
-
-        for await (const chunk of geminiStream) {
-          const parts = chunk.candidates?.[0]?.content?.parts ?? [];
-
-          for (const part of parts) {
-            if (!part.text) continue;
-
-            if (part.thought) {
-              // Extract just the short label — not the full wall of text
-              const now = Date.now();
-              if (now - lastEmitTime > 600) {
-                const label = extractThoughtLabel(part.text);
-                if (label) {
-                  enqueue(sseEvent("status", { message: label }));
-                  lastEmitTime = now;
-                }
-              }
-            } else {
-              // Actual JSON output
-              accumulated += part.text;
+          // This fires reliably every time a tool is called
+          if (event.type === "tool-started") {
+            const name = event.toolCall?.toolName;
+            if (name === "update_file") {
+              const path =
+                (event.toolCall?.input as { path?: string })?.path ?? "a file";
+              enqueue(
+                sseEvent("thinking", { text: `\n\nUpdating \`${path}\`…` })
+              );
+            } else if (name === "done_improving") {
+              enqueue(
+                sseEvent("thinking", { text: "\n\nFinalizing improvements…" })
+              );
             }
           }
-        }
-
-        // ── Parse the complete JSON response ──────────────────────────────────
-
-        let parsed: {
-          assistantMessage: string;
-          title?: string;
-          files: Record<string, { code: string }>;
-          dependencies: Record<string, string>;
-        };
-
-        try {
-          parsed = JSON.parse(accumulated);
-        } catch (error) {
-          enqueue(
-            sseEvent("error", {
-              message: "AI returned invalid JSON. Please try again.",
-            }),
-          );
-          controller.close();
-          return;
-        }
-
-        const {
-          assistantMessage,
-          title: aiTitle,
-          files,
-          dependencies,
-        } = parsed;
-
-        if (!files || typeof files !== "object") {
-          enqueue(
-            sseEvent("error", {
-              message: "AI response missing files. Please try again.",
-            }),
-          );
-          controller.close();
-          return;
-        }
-
-        // ── Validate npm packages ──────────────────────────────────────────────
-
-        enqueue(sseEvent("status", { message: "Validating packages…" }));
-        const validatedDeps = await validateDependencies(dependencies ?? {});
-        const newFileData: FileData = {
-          files,
-          dependencies: validatedDeps,
-          title: aiTitle,
-        };
-
-        enqueue(sseEvent("status", { message: "Saving…" }));
-
-        const lastUserMsg = messages[messages.length - 1];
-        const updatedMessages: Message[] = [
-          ...messages,
-          { role: "assistant", content: assistantMessage },
-        ];
-
-        const workspace = workspaceId
-          ? await db.workspaces.update({
-              where: { id: workspaceId, userId: user.id },
-              data: {
-                messages: updatedMessages as never,
-                fileData: newFileData as never,
-              },
-            })
-          : await db.workspaces.create({
-              data: {
-                userId: user.id,
-                title: aiTitle ?? lastUserMsg.content.slice(0, 80),
-                messages: updatedMessages as never,
-                fileData: newFileData as never,
-              },
-            });
-
-        // Then deduct credit
-        await db.user.update({
-          where: { id: user.id },
-          data: { credits: { decrement: CREDIT_COST_PER_GENERATION } },
         });
 
+        // ── Run the agent ─────────────────────────────────────────────────
+        enqueue(sseEvent("status", { message: "Cline agent starting…" }));
+
+        const result = await agent.run(userRequest);
+
+        if (result.status === "failed") {
+          throw new Error(result.error?.message ?? "Agent run failed");
+        }
+
+        // ── Deduct credit + save to DB ────────────────────────────────────
+
+        const newFileData: FileData = {
+          files: patchedFiles,
+          dependencies: fileData.dependencies,
+          title: fileData.title,
+        };
+
+        await db.workspaces.update({
+            where: { id: workspaceId, userId },
+            data: { fileData: newFileData as never },
+          });
+          await db.user.update({
+            where: { id: userId },
+            data: { credits: { decrement: CREDIT_COST_PER_GENERATION } },
+          })
+          
+
         const updatedUser = await db.user.findUnique({
-          where: { id: user.id },
+          where: { id: userId },
           select: { credits: true },
         });
 
+        // ── Final done event ──────────────────────────────────────────────
+
         enqueue(
           sseEvent("done", {
-            workspaceId: workspace.id,
-            assistantMessage,
             fileData: newFileData,
+            summary: finalSummary || result.outputText,
             creditsRemaining:
               updatedUser?.credits ?? user.credits - CREDIT_COST_PER_GENERATION,
-          }),
+          })
         );
       } catch (err) {
-        console.error("[gen-ai-code] stream error:", err);
+        console.error("[improve] error:", err);
         enqueue(
           sseEvent("error", {
-            message: "Something went wrong. Please try again.",
-          }),
+            message:
+              err instanceof Error ? err.message : "Something went wrong.",
+          })
         );
       } finally {
         controller.close();
@@ -334,30 +242,6 @@ export async function POST(request: NextRequest) {
     },
   });
 }
+
 export const runtime = "nodejs";
-export const maxDuration = 300;
-
-// ── Upsert workspace + deduct credit (single transaction) ──────────────
-
-// const [workspace] = await db.$transaction([
-//   workspaceId
-//     ? db.workspaces.update({
-//         where: { id: workspaceId, userId },
-//         data: {
-//           messages: updatedMessages as never,
-//           fileData: newFileData as never,
-//         },
-//       })
-//     : db.workspaces.create({
-//         data: {
-//           userId,
-//           title: aiTitle ?? lastUserMessage.content.slice(0, 80),
-//           messages: updatedMessages as never,
-//           fileData: newFileData as never,
-//         },
-//       }),
-//   db.user.update({
-//     where: { id: userId },
-//     data: { credits: { decrement: CREDIT_COST_PER_GENERATION } },
-//   }),
-// ]);
+export const maxDuration = 300; // for vercel - 300s on Fluid

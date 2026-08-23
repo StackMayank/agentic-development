@@ -3,6 +3,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/prisma";
+import { checkUser } from "@/lib/checkUser";
 import type { WorkspaceUser, WorkspaceData } from "@/types/workspace";
 export type { WorkspaceUser, WorkspaceData } from "@/types/workspace";
 
@@ -11,6 +12,9 @@ export type { WorkspaceUser, WorkspaceData } from "@/types/workspace";
 export async function getWorkspaceUser(): Promise<WorkspaceUser> {
   const { userId: clerkId } = await auth();
   if (!clerkId) redirect("/");
+
+  const syncedUser = await checkUser();
+  if (!syncedUser) redirect("/");
 
   const user = await db.user.findUnique({
     where: { clerkId },

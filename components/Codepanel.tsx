@@ -12,7 +12,7 @@ import {
 import { dracula } from "@codesandbox/sandpack-themes";
 import { useEffect, useRef } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AlertTriangle, Code2, Eye, Wand2 } from "lucide-react";
+import { AlertTriangle, Code2, Eye, Wand2, RotateCw } from "lucide-react";
 import {RingLoader} from "react-spinners"
 import { Button } from "./ui/button";
 import {Bot, Download, Loader2, ArrowUp } from "lucide-react";
@@ -294,7 +294,7 @@ root.render(<React.StrictMode><App /></React.StrictMode>);`
           className="h-auto gap-0 rounded-none bg-transparent p-0"
         >
           <TabsTrigger className="border-b-2 pt-2" value="code">
-            <Code2 className="h-3.5 w-2.5" />
+            <Code2 className="h-3.5 w-3.5" />
             Code
           </TabsTrigger>
 
@@ -389,74 +389,85 @@ root.render(<React.StrictMode><App /></React.StrictMode>);`
 
       </div>
 
-      <div className="relative flex-1 overflow-hidden">
-        {isGenerating || isImproving && (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-6 bg-[#0A0A0A]/85 backdrop-blur-sm">
-            <RingLoader color='#60a5fa' size={64} speedMultiplier={0.8} />
+      <div className="relative flex h-full min-h-0 w-full flex-1 overflow-hidden">
+        {(isGenerating || isImproving) && (
+          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-[#0a0a0a]/90 backdrop-blur-md">
+            <RingLoader color="#60a5fa" size={72} speedMultiplier={0.75} />
             <div className="flex flex-col items-center gap-1.5">
-              <p className="text-sm font-medium text-white/60">
+              <p className="text-sm font-medium text-white/70">
                 {isImproving
                 ? "Improving with Cline AI Agent..."
                 : (statusLog[statusLog.length - 1]?.label ?? "Generating...")
                 }
               </p>
-              <p className="text-xs text-white/20">
+              <p className="text-xs text-white/30">
                 This usually takes 10-20 seconds
               </p>
             </div>
           </div>
         )}
 
-        <div className="relative flex-1 overflow-hidden">
-          {(isGenerating || isImproving) && (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-6 bg-[#0a0a0a]/85 backdrop-blur-sm">
-            <RingLoader color="#60a5fa" size={64} speedMultiplier={0.8}/>
-            <div className="flex flex-col items-center gap-1.5">
-              <p className="text-sm font-medium text-white/60">
-                {isImproving
-                ? "Improving with AI Agent"
-                : (statusLog[statusLog.length - 1]?.label ?? "Generating...")}
-              </p>
-              <p className="text-xs text-white/20">
-                  This usually takes 10-20 seconds
-              </p>
-            </div>
-            </div>
-          )}  
-
+        <div className="relative flex h-full w-full flex-1 overflow-hidden">
         <SandpackLayout
           style={{
-            height: "100vh",
+            width: "100%",
+            height: "100%",
+            minHeight: 0,
+            flex: 1,
             border: "none",
             borderRadius: 0,
             background: "transparent",
           }}
+          className="h-full w-full"
         >
-          <TabsContent 
+          <TabsContent
           value="preview"
-          className="mt-0 h-full w-full"
+          forceMount
+          className="relative mt-0 h-full min-h-0 w-full data-[state=inactive]:hidden"
           >
+            {/* Single reload button at BOTTOM-right of preview area */}
+            {sandpack.status !== "idle" && (
+              <div className="pointer-events-none absolute bottom-3 left-1/2 z-30 flex -translate-x-1/2 justify-center">
+                <button
+                  onClick={() => sandpack.runSandpack()}
+                  className="pointer-events-auto group inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/15 bg-[#0d0d0d]/80 px-3 text-xs font-medium text-white/80 shadow-md backdrop-blur transition-all hover:border-white/25 hover:bg-white/10 hover:text-white active:scale-95"
+                  title="Reload preview"
+                >
+                  <RotateCw
+                    className={cn(
+                      "h-3.5 w-3.5 transition-transform group-hover:rotate-180",
+                      sandpack.status === "running" && "animate-spin",
+                    )}
+                  />
+                  Reload
+                </button>
+              </div>
+            )}
             <SandpackPreview
-            style={{ height: "89%"}}
+            style={{ width: "100%", height: "100%", minHeight: 0 }}
+            className="h-full w-full"
             showOpenInCodeSandbox={false}
+            showRefreshButton={false}
+            showNavigator={false}
             />
 
           </TabsContent>
 
-          <TabsContent 
+          <TabsContent
           value="code"
           forceMount
-          className="mt-0 flex h-full w-full data-[state=inactive]:hidden"
+          className="mt-0 flex h-full min-h-0 w-full data-[state=inactive]:hidden"
           >
              <SandpackFileExplorer
               style={{
-                height: "90%",
+                height: "100%",
+                minHeight: 0,
                 width: "180px",
                 borderRight: "0.5px solid rgba(255,255,255,0.08)",
               }}
             />
             <SandpackCodeEditor
-              style={{ height: "90%", flex: 1 }}
+              style={{ height: "100%", minHeight: 0, flex: 1 }}
               showTabs
               showLineNumbers
               showInlineErrors
@@ -517,13 +528,15 @@ export function CodePanel({
   const filePathKey = Object.keys(files).sort().join("|");
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden">
       <SandpackProvider
         key={filePathKey}
         template="react"
         theme={dracula}
         files={files}
         customSetup={{ dependencies }}
+        style={{ height: "100%", width: "100%", minHeight: 0 }}
+        className="h-full w-full min-h-0 flex-1"
         options={{
           externalResources: ["https://cdn.tailwindcss.com"],
           recompileMode: "delayed",

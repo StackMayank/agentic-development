@@ -18,6 +18,8 @@ import { createClient } from "@supabase/supabase-js";
 import { toast } from "sonner";
 import { useUser } from "@clerk/nextjs";
 import { Sparkles } from "lucide-react";
+import CreditsPill from "./CreditsPill";
+import { useLiveCredits } from "@/lib/useLiveCredits";
 
 interface ChatPanelProps {
   messages: Message[];
@@ -43,7 +45,7 @@ const ChatPanel = ({
   isGenerating,
   isImproving,
   statusLog,
-  credits,
+  credits: initialCredits,
   initialPrompt,
   onGenerate,
   userId,
@@ -55,6 +57,9 @@ const ChatPanel = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { user } = useUser();
+
+  // Live synced credits — SAME source of truth as Header
+  const { credits } = useLiveCredits(initialCredits);
 
   const [input, setInput] = useState("");
   const [pendingImageUrl, setPendingImageUrl] = useState<string | null>(null);
@@ -129,12 +134,20 @@ const ChatPanel = ({
     el.style.height = Math.min(el.scrollHeight, 160) + "px";
   }, [input]);
 
-  // Auto-scroll on new messages or streaming updates
+  // Auto-scroll on new messages or streaming updates (every delta of content)
+  const lastContentLen = messages.length
+    ? messages[messages.length - 1].content.length
+    : 0;
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [messages, isGenerating, isImproving]);
+    // Use instant scroll during streaming for snappy follow; smooth for new messages
+    const shouldSmooth = !isStreamingAssistant;
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior: shouldSmooth ? "smooth" : "auto",
+    });
+  }, [messages.length, lastContentLen, isGenerating, isImproving, isStreamingAssistant]);
 
   useEffect(() => {
     if (!initialPrompt || hasAutoSubmittedRef.current || messages.length > 0)
@@ -148,20 +161,10 @@ const ChatPanel = ({
       {/* Header */}
       <div className="flex items-center justify-between border-b border-white/6 px-4 py-3">
         <h3 className="text-[18.5px] font-semibold">{appTitle}</h3>
-        <PricingModal reason={noCredits ? "credits" : "upgrade"}>
-          <span
-            className={cn(
-              "rounded-full px-2 py-0.5 text-[11px] transition-colors",
-              noCredits
-                ? "bg-red-500/15 text-red-400/80 hover:bg-red-500/25"
-                : "bg-white/6 text-white/30 hover:bg-white/10 hover:text-white/50",
-            )}
-          >
-            {noCredits
-              ? "No credits • Upgrade"
-              : `${credits} credit${credits !== 1 ? "s" : ""}`}
-          </span>
-        </PricingModal>
+        <CreditsPill
+          variant="chat"
+          initialCredits={initialCredits}
+        />
       </div>
 
       {/* Messages */}
